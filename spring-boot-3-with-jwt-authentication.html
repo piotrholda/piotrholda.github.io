@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Spring Boot 3 with JWT Authentication</title>
+</head>
+<body>
+<article>
+    <header>
+        <h1>Spring Boot 3 with JWT Authentication</h1>
+    </header>
+
+    <img src="spring-boot-3-with-jwt-authentication.png">
+
+    <section>
+        <h2>What is JWT?</h2>
+        <p>
+            JWT, or JSON Web Token, is a compact, URL-safe means of representing claims to be transferred between two parties. It’s a standardized token format used in authentication and information exchange in modern web applications. JWTs consist of three parts: a header, a payload, and a signature. The header typically specifies the type of token and the algorithm used for signing. The payload contains the claims, which are statements about an entity (usually the user) and additional metadata. The signature ensures the token’s integrity and is generated using the header, payload, and a secret that only the issuer knows.
+        </p>
+    </section>
+
+    <section>
+        <h2>How to protect our Spring Boot Application with the JWT token?</h2>
+        <p>
+            We need to implement our authentication filter. Every request coming to our application must pass through this filter. The first thing our filter must do is check whether the incoming request contains the correct JWT token.
+        </p>
+        <p>
+            The JWT token is passed in the Authorization header which contains the word Bearer and the JWT token encoded in Base64. For example:
+        </p>
+        <pre>
+            Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZGFtayIsImlhdCI6MTY5OTgxMDA4NywiZXhwIjoxNjk5ODExODg3fQ.jcMIjegKcTaf0UsOkZFgcBhr4YQgc-Iiou461CyMh3E
+        </pre>
+        <p>
+            If the token exists, we need to get the username from it and make sure that the username exists in our user database, and then pass the user details to Spring Security. This is our implementation of the authentication filter:
+        </p>
+        <pre>
+@Component
+@RequiredArgsConstructor
+class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private final JwtService jwtService;
+    private final UserDetailsService userDetailsService;
+
+    @Override
+    protected void doFilterInternal(
+            @NonNull HttpServletRequest request,
+            @NonNull HttpServletResponse response,
+            @NonNull FilterChain filterChain) throws ServletException, IOException {
+        final String authHeader = request.getHeader("Authorization");
+        final String jwt;
+        final String username;
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+        jwt = authHeader.substring(7);
+        username = jwtService.extractUsername(jwt);
+        if (nonNull(username) && isNull(SecurityContextHolder.getContext().getAuthentication())) {
+            UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+            if (jwtService.isTokenValid(jwt, userDetails)) {
+                UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
+                        userDetails, null, userDetails.getAuthorities());
+                authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                SecurityContextHolder.getContext().setAuthentication(authToken);
+            }
+        }
+        filterChain.doFilter(request, response);
+    }
+}
+        </pre>
+        <p>
+            As you can see, we have two dependencies in our filter: JwtSerwice and UserDetailsService.
+        </p>
+        <p>
+            JwtService is a utility class that provides us with methods for operating on the token:
+        </p>
+        <pre>
+@Service
+class JwtService implements TokenProvider {
+
+    @Value("${jwt.secret-key}")
+    private String secretKey;
+
+    String extractUsername(String jwt) {
+        return extractClaim(jwt, Claims::getSubject);
+    }
+
+    @Override
+    public String generateToken(UserDetails userDetails) {
+        return generateToken(Map.of(), userDetails);
+    }
+
+    boolean isTokenValid(String jwt, UserDetails userDetails) {
+        String username = extractUsername(jwt);
+        return (username.equals(userDetails.getUsername()) && !isTokenExpired(jwt));
+    }
+
+    private boolean isTokenExpired(String jwt) {
+        return extractClaim(jwt, Claims::getExpiration).before(new Date());
+    }
+
+    String generateToken(Map<String, Object> extraClaims, UserDetails userDetails) {
+        long currentTimeMillis = System.currentTimeMillis();
+        return Jwts.builder()
+                .setClaims(extraClaims)
+                .setSubject(userDetails.getUsername())
+                .setIssuedAt(new Date(currentTimeMillis))
+                .setExpiration(new Date(currentTimeMillis + 1000 * 60 * 30))
+                .signWith(getSigningKey(), SignatureAlgorithm.HS256)
+                .compact();
+    }
+
+    private <T> T extractClaim(String jwt, Function<Claims, T> claimResolver) {
+        Claims claims = extractAllClaims(jwt);
+        return claimResolver.apply(claims);
+    }
+
+    private Claims extractAllClaims(String jwt) {
+        return Jwts.parserBuilder()
+                .setSigningKey(getSigningKey())
+                .build()
+                .parseClaimsJws(jwt)
+                .getBody();
+    }
+
+    private Key getSigningKey() {
+        byte[] bytes = Decoders.BASE64.decode(secretKey);
+        return Keys.hmacShaKeyFor(bytes);
+    }
+}
+        </pre>
+        <p>
+            UserDetailsService is an interface that is part of Spring Security. We have a simple implementation that retrieves user data from the database:
+        </p>
+        <pre>
+    @Bean
+    UserDetailsService userDetailsService() {
+        return username -> userRepository.findByUsername(username)
+                .orElseThrow(() -> new UsernameNotFoundException("User not found."));
+    }
+        </pre>
+        <p>
+            If the request contains a valid token, the filter will place user details in the security context. So how can we ensure access to our application only for logged-in users? We will use standard Spring Security mechanisms:
+        </p>
+        <pre>
+@RestController
+@RequiredArgsConstructor
+@RequestMapping("/api/v1/profile")
+public class ProfileController {
+
+    private final UserRepository userRepository;
+    private final UserMapper userMapper;
+
+    @PreAuthorize("hasAnyRole('ADMIN','USER')")
+    @GetMapping
+    public ResponseEntity<ProfileResponse> getUserDetails(Authentication authentication) {
+        Optional<UserEntity> user = userRepository.findByUsername(authentication.getName());
+        return user
+                .map(userMapper::toProfileResponse)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+}
+        </pre>
+        <p>
+            As you can see, users with one of the ADMIN or USER roles can access their profile.
+        </p>
+        <p>
+            If you want to see a complete sample application, visit my GitHub and clone the repository:
+        </p>
+        <p>
+            <a href="https://github.com/piotrholda/spring-jwt">https://github.com/piotrholda/spring-jwt</a>
+        </p>
+    </section>
+</article>
+
+<footer>
+</footer>
+</body>
+</html>
