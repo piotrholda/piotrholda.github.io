@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Manacher’s Algorithm — How to find the longest palindrome in a given string?</title>
+</head>
+<body>
+<article>
+    <header>
+        <h1>Manacher’s Algorithm — How to find the longest palindrome in a given string?</h1>
+    </header>
+
+    <img src="manachers-algorithm.png">
+
+    <section>
+        <h2>What is the Manacher’s Algorithm and how does it work?</h2>
+        <p>
+            Manacher’s algorithm is a method for determining the longest palindrome in a given string of characters. The
+            algorithm takes advantage of the fact that palindromes are symmetric to reduce the number of comparisons
+            required to find the longest palindrome in a string.
+        </p>
+        <p>
+            Let’s take an example string: “ababdedbabeab”. The longest palindrome in this string is “babdedbab”. Let’s
+            mark the center, left, and right boundaries of the palindrome:
+        </p>
+        <pre>
+"ababdedbabeab"
+  |   |   |
+  L   C   R
+        </pre>
+        <p>
+            Let’s assume that each element of the sequence is the middle of some palindrome, even if it is a palindrome
+            consisting of one element. We will create an array in which we will record the distance from each center to
+            the boundary of the palindrome:
+        </p>
+        <pre>
+"ababdedbabeab"
+"0110040011000"
+  |   |   |
+  L   C   R
+        </pre>
+        <p>
+            We can notice that by its nature, a palindrome is symmetrical about its center. If a palindrome contains
+            other palindromes, symmetry means that the arrangement of these inner palindromes is also symmetrical. This
+            observation means that if we find a smaller palindrome inside a larger palindrome on the left side of its
+            center, we can speed up the search for the palindrome on the right side because we know that it will have
+            the same or greater length.
+        </p>
+        <p>
+            Manacher’s Algorithm looks for palindromes containing an odd number of characters. We can easily bypass this
+            limitation with a simple trick. We will add a ‘#’ character at the beginning, end, and between the
+            characters of the string. This ensures that the longest palindrome will have an odd number of characters.
+            When we find the longest palindrome, we will ignore these ‘#’ characters.
+        </p>
+    </section>
+    <section>
+        <h2>Let’s code!</h2>
+        <p>
+            See the implementation in Java. The comments will help you understand how the algorithm works:
+        </p>
+        <pre>
+public class ManachersAlgorithm {
+
+    static String longestPalindrome(String s) {
+        String str = transform(s);
+        int length = (2 * s.length()) + 1;
+        int[] p = new int[length];
+        // The center of the farthest right palindrome found so far.
+        int c = 0;
+        // The farthest right boundary of a palindrome found so far.
+        int r = 0;
+        // Length of the longest palindrome found so far.
+        int maxLength = 0;
+        // Position of the center of the longest palindrome found so far.
+        int maxCenter = 0;
+        for (int i = 0; i < length; i++) {
+            /*
+                The position of the element lying to the left of center
+                at the same distance as the current i.
+            */
+            int mirror = (2 * c) - i;
+            /*
+                If we are inside the last found palindrome
+                (within it's boundaries), the value of p[i]
+                can take the minimum of two values: the distance
+                from current i to right boundary or the size of the
+                palindrome lying on the mirror side of the last found center.
+            */
+            if (i < r) {
+                p[i] = Math.min(r - i, p[mirror]);
+            }
+            // Check if we can increase size of the current palindrome
+            int tempL = i - (1 + p[i]);
+            int tempR = i + (1 + p[i]);
+            while (tempL >= 0 && tempR < length
+                    && str.charAt(tempL) == str.charAt(tempR)) {
+                p[i]++;
+                tempL--;
+                tempR++;
+            }
+            /*
+                Check if the palindrome at i is expanding beyond
+                the current right boundary of the palindrome at center c.
+                If it is, the new center is i and the new r is
+                the right boundary of the palindrome at i.
+            */
+            if (i + p[i] > r) {
+                c = i;
+                r = i + p[i];
+
+                if (p[i] > maxLength) {
+                    maxLength = p[i];
+                    maxCenter = i;
+                }
+            }
+        }
+        return extractSubstring(s, maxLength, maxCenter);
+    }
+
+    private static String transform(String s) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < s.length(); i++) {
+            sb.append("#");
+            sb.append(s.charAt(i));
+        }
+        sb.append("#");
+        return sb.toString();
+    }
+
+    private static String extractSubstring(String s,
+                                           int maxLength,
+                                           int maxCenter) {
+        int l = (maxCenter - maxLength) / 2;
+        int r = l + maxLength;
+        return s.substring(l, r);
+    }
+}
+        </pre>
+        <p>
+            Manacher’s algorithm uses palindrome symmetry to avoid character re-checking and efficiently uses previously
+            computed information. Thanks to this, it achieves a linear time complexity of O(N), where N is the length of
+            the input string. This makes it a very efficient algorithm for solving the problem of finding the longest
+            palindrome in a string.
+        </p>
+        <p>
+            See also GitHub repository:
+        </p>
+        <a href="https://github.com/piotrholda/algorithms">https://github.com/piotrholda/algorithms</a>
+    </section>
+</article>
+</body>
+</html>
