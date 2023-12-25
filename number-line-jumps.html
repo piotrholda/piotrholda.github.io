@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>HackerRank Number Line Jumps — Solution in Java</title>
+</head>
+<body>
+<article>
+    <header>
+        <h1>HackerRank Number Line Jumps — Solution in Java</h1>
+    </header>
+
+    <img src="number-line-jumps.png">
+
+    <section>
+        <h2>Description of the problem</h2>
+        <p>
+            See the problem description on the HackerRank page:
+        </p>
+        <a href="https://www.hackerrank.com/challenges/kangaroo/problem">https://www.hackerrank.com/challenges/kangaroo/problem</a>
+        <p>
+            Let’s take an example string: “ababdedbabeab”. The longest palindrome in this string is “babdedbab”. Let’s
+            mark the center, left, and right boundaries of the palindrome:
+        </p>
+    </section>
+    <section>
+        <h2>Solution</h2>
+        <p>
+            We are dealing with a system of two linear equations:
+        </p>
+        <pre>
+y1 = v1 * n + x1
+y2 = v2 * n + x2
+        </pre>
+        <p>
+            Where n is the number of kangaroo jumps and y1 and y2 are the kangaroo positions after n jumps.
+            We want to find a solution to this system of equations when two kangaroos meet in the same position, so let’s compare the right sides of the equations:
+        </p>
+        <pre>
+v1 * n + x1 = v2 * n + x2
+        </pre>
+        <p>
+            After transformation:
+        </p>
+        <pre>
+n = (x2 - x1) / (v1 - v2)
+        </pre>
+        <p>
+            We cannot divide by zero, so we will not look for a solution this way if the speeds of the kangaroos are the same. In this case, the kangaroos will only meet if they start from the same position: x1 = x2.
+            If n is the number of jumps, it must be a natural number. A negative number would mean that at their speeds they could have met in the past before they started from positions x1 and x2 but they will never meet after starting from their positions. A fractional number would mean that during the jump one kangaroo will overtake the other and they will never meet at the same position.
+        </p>
+        <p>
+            Let’s write this solution in the form of Java code:
+        </p>
+        <pre>
+    public static String kangaroo(int x1, int v1, int x2, int v2) {
+        if (v1 == v2) {
+            return x1 == x2 ? "YES" : "NO";
+        }
+        double n = ((double) x2 - x1) / (v1 - v2);
+        return n > 0 && n == (int) n ? "YES" : "NO";
+    }
+        </pre>
+        <p>
+            See also the GitHub repository:
+        </p>
+        <a href="https://github.com/piotrholda/algorithms">https://github.com/piotrholda/algorithms</a>
+    </section>
+</article>
+</body>
+</html>
