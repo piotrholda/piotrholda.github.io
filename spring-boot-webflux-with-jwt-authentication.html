@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Spring Boot WebFlux with JWT Authentication</title>
+</head>
+<body>
+<article>
+    <header>
+        <h1>Spring Boot WebFlux with JWT Authentication</h1>
+    </header>
+
+    <img src="spring-boot-webflux-with-jwt-authentication.png">
+
+    <section>
+        <h2>How to secure the Spring Boot WebFlux application with the JWT Token?</h2>
+        <p>
+            First, we need to change the Spring Security configuration. Typically this is done via the custom configuration of SecurityWebFilterChain:
+        </p>
+        <pre>
+@Configuration
+@EnableWebFluxSecurity
+class SecurityConfig {
+
+    @Bean
+    SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http,
+                                                     ReactiveAuthenticationManager authenticationManager,
+                                                     ServerAuthenticationConverter authenticationConverter) {
+        AuthenticationWebFilter authenticationWebFilter = new AuthenticationWebFilter(authenticationManager);
+        authenticationWebFilter.setServerAuthenticationConverter(authenticationConverter);
+
+        return http
+                .authorizeExchange(exchanges -> exchanges
+                        .pathMatchers(HttpMethod.POST, "/login").permitAll()
+                        .anyExchange().authenticated()
+                )
+                .addFilterAt(authenticationWebFilter, SecurityWebFiltersOrder.AUTHENTICATION)
+                .httpBasic(ServerHttpSecurity.HttpBasicSpec::disable)
+                .formLogin(ServerHttpSecurity.FormLoginSpec::disable)
+                .csrf(ServerHttpSecurity.CsrfSpec::disable)
+                .cors(ServerHttpSecurity.CorsSpec::disable)
+                .build();
+    }
+}
+        </pre>
+        <p>
+            As you can see, we allowed access to the /login path without authentication. All other paths in the application will require authentication.
+            The most important element of this configuration is AuthenticationWebFilter, which uses two classes: ServerAuthenticationConverter and ReactiveAuthenticationManager.
+            ServerAuthenticationConverter is responsible for converting a server exchange into an Authentication object, which is a representation of the user’s credentials and authorities:
+        </p>
+        <pre>
+@Component
+@RequiredArgsConstructor
+class JwtServerAuthenticationConverter implements ServerAuthenticationConverter {
+
+    private final JwtService jwtService;
+    private static final String BEARER = "Bearer ";
+
+    @Override
+    public Mono<Authentication> convert(ServerWebExchange exchange) {
+        return Mono.justOrEmpty(exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION))
+                .filter(header -> header.startsWith(BEARER))
+                .map(header -> header.substring(BEARER.length()))
+                .map(token -> new JwtToken(token, createUserDetails(token)));
+    }
+
+    private UserDetails createUserDetails(String token) {
+        String username = jwtService.extractUsername(token);
+        return User.builder()
+                .username(username)
+                .authorities(createAuthorities(token))
+                .password("")
+                .build();
+    }
+
+    private List<SimpleGrantedAuthority> createAuthorities(String token) {
+        return jwtService.extractRoles(token).stream()
+                .map(role -> "ROLE_" + role)
+                .map(SimpleGrantedAuthority::new)
+                .toList();
+    }
+}
+        </pre>
+        <p>
+            ReactiveAuthenticationManager takes the Authentication object provided by the ServerAuthenticationConverter and verifies this object against the implemented authentication method. In our case, it means the validation of the JWT token:
+        </p>
+        <pre>
+@Component
+@RequiredArgsConstructor
+class JwtAuthenticationManager implements ReactiveAuthenticationManager {
+
+    private final JwtService jwtService;
+
+    @Override
+    public Mono<Authentication> authenticate(Authentication authentication) {
+        return Mono.just(authentication)
+                .cast(JwtToken.class)
+                .filter(jwtToken -> jwtService.isTokenValid(jwtToken.getToken()))
+                .map(jwtToken -> jwtToken.withAuthenticated(true))
+                .switchIfEmpty(Mono.error(new JwtAuthenticationException("Invalid token.")));
+    }
+}
+        </pre>
+    </section>
+
+    <section>
+        <h2>How to use our security configuration?</h2>
+        <p>
+            Having our configuration we can implement the login controller:
+        </p>
+        <pre>
+@RestController
+@RequiredArgsConstructor
+public class LoginController {
+
+    private final PasswordEncoder passwordEncoder;
+    private final ReactiveUserDetailsService userDetailsService;
+    private final TokenProvider tokenProvider;
+
+    @PostMapping("/login")
+    Mono<LoginResponse> login(@RequestBody LoginRequest loginRequest) {
+        return userDetailsService.findByUsername(loginRequest.username())
+                .filter(u -> passwordEncoder.matches(loginRequest.password(), u.getPassword()))
+                .map(tokenProvider::generateToken)
+                .map(LoginResponse::new)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED)));
+    }
+}
+        </pre>
+        <p>
+            TokenProvider interface is implemented by the JwtService class that provides us with methods for operating on the token:
+        </p>
+        <pre>
+@Service
+class JwtService implements TokenProvider {
+
+    @Value("${jwt.secret-key}")
+    private String secretKey;
+
+    @Value("${jwt.token-expiration-seconds}")
+    private long tokenExpiration;
+
+    String extractUsername(String jwt) {
+        return extractClaim(jwt, Claims::getSubject);
+    }
+
+    List<String> extractRoles(String jwt) {
+        return extractClaim(jwt, claims -> (List<String>) claims.get("roles"));
+    }
+
+    @Override
+    public String generateToken(UserDetails userDetails) {
+        return generateToken(Map.of(), userDetails);
+    }
+
+    boolean isTokenValid(String jwt) {
+        return !isTokenExpired(jwt);
+    }
+
+    private boolean isTokenExpired(String jwt) {
+        return extractClaim(jwt, Claims::getExpiration).before(new Date());
+    }
+
+    private String generateToken(Map<String, Object> extraClaims, UserDetails userDetails) {
+        long currentTimeMillis = System.currentTimeMillis();
+        return Jwts.builder()
+                .claims(extraClaims)
+                .subject(userDetails.getUsername())
+                .claim("roles", userDetails.getAuthorities().stream()
+                        .map(GrantedAuthority::getAuthority)
+                        .map(role -> role.substring("ROLE_".length()))
+                        .toArray())
+                .issuedAt(new Date(currentTimeMillis))
+                .expiration(new Date(currentTimeMillis + tokenExpiration * 1000))
+                .signWith(getSigningKey(), Jwts.SIG.HS256)
+                .compact();
+    }
+
+    private <T> T extractClaim(String jwt, Function<Claims, T> claimResolver) {
+        Claims claims = extractAllClaims(jwt);
+        return claimResolver.apply(claims);
+    }
+
+    private Claims extractAllClaims(String jwt) {
+        try {
+            return Jwts.parser()
+                    .verifyWith(getSigningKey())
+                    .build()
+                    .parseSignedClaims(jwt)
+                    .getPayload();
+        } catch (JwtException e) {
+            throw new JwtAuthenticationException(e.getMessage());
+        }
+    }
+
+    private SecretKey getSigningKey() {
+        byte[] bytes = Decoders.BASE64.decode(secretKey);
+        return Keys.hmacShaKeyFor(bytes);
+    }
+}
+        </pre>
+        <p>
+            LoginController returns the generated JWT token. This token can later be used to request our application.
+            Let’s see how you can secure access to the enpoint:
+        </p>
+        <pre>
+@RestController
+@RequiredArgsConstructor
+public class ProfileController {
+
+    @PreAuthorize("hasAnyRole('ADMIN','USER')")
+    @GetMapping("/profile")
+    Mono<ProfileResponse> getProfile(Authentication authentication) {
+        User user = (User) authentication.getPrincipal();
+        return Mono.just(new ProfileResponse(user.getUsername(), user.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .map(name -> name.substring("ROLE_".length()))
+                .collect(Collectors.toSet())
+        ));
+    }
+}
+        </pre>
+        <p>
+            As you can see, the only component that uses ReactiveUserDetailsService is the LoginController. This way of implementation means that we do not need to access the user database to authenticate and authorize the user’s request. All the necessary information is contained in the secured JWT token. Keep in mind that this type of implementation means that the user has access to the application’s functions as long as the token is valid. Remember to set the token expiration according to your safety requirements.
+        </p>
+        <p>
+            If you want to see a complete sample application, visit my GitHub and clone the repository:
+        </p>
+        <a href="https://github.com/piotrholda/spring-webflux-jwt">https://github.com/piotrholda/spring-webflux-jwt</a>
+    </section>
+</article>
+</body>
+</html>
