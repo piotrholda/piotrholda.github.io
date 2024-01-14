@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Automatically refreshing access token in Postman</title>
+</head>
+<body>
+<article>
+    <header>
+        <h1>Automatically refreshing access token in Postman</h1>
+    </header>
+
+    <img src="automatically-refreshing-access-token-in-postman.png">
+
+    <section>
+        <h2>What problem do we want to address?</h2>
+        <p>
+            When using Postman with an access token-secured website, you’ve probably encountered an annoying problem. You need to call the endpoint to refresh the token:
+        </p>
+        <img src="automatically-refreshing-access-token-in-postman-1.png">
+        <p>
+            Then you need to copy the token returned by the endpoint and manually paste it into the request you want to execute:
+        </p>
+        <img src="automatically-refreshing-access-token-in-postman-2.png">
+    </section>
+    <section>
+       <h2>How to refresh a token without copying it manually?</h2>
+        <p>
+            Postman offers the functionality of user-defined variables. You can find them in the Environments tab. Let’s define a global variable:
+        </p>
+        <img src="automatically-refreshing-access-token-in-postman-3.png">
+        <p>
+            Then, in the token refresh request, we need to add JavaScript code that will retrieve the token from the response and save it to our variable:
+        </p>
+        <pre>
+const response = pm.response.json();
+pm.globals.set("token",response.token);
+        </pre>
+        <p>
+            You can add this code in the Tests tab:
+        </p>
+        <img src="automatically-refreshing-access-token-in-postman-4.png">
+        <p>
+            Now we can test the operation of this script. Hit Send and see if your variable received a new value:
+        </p>
+        <img src="automatically-refreshing-access-token-in-postman-5.png">
+        <p>
+            The last step is to use the token to authenticate other requests. Variables can be used with double curly brackets:
+        </p>
+        <pre>
+{{test}}
+        </pre>
+        <p>
+            Use it in the Authentication tab, hit Send, and see if your token works as expected:
+        </p>
+        <img src="automatically-refreshing-access-token-in-postman-6.png">
+    </section>
+</article>
+</body>
+</html>
